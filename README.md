@@ -7,4 +7,6 @@ Zamiast MAX232 zastosowałem gotową płytkę FT 232 RL z gniazdem USB - C /poł
 
 <img width="1262" height="596" alt="MIK1_V3_mini_BACK" src="https://github.com/user-attachments/assets/dc59e4f2-da67-4693-84e0-87bab7969aea" />
 
-Wyjasnienia i opisy /komentarze/ w pliku ASM głównie z oryginału. Na końcu programu jest nazwa programu, poprzedzona DD E2, można ją pominąć jeśli nie mamy "magazynu" programów.
+Wyjasnienia i opisy /komentarze/ w pliku ASM głównie z oryginału. Na końcu programu jest nazwa programu, poprzedzona DD E2, można ją pominąć jeśli nie mamy "magazynu" programów. 
+
+Program MIK1_RAM_FO to zarówno zapis do CA jak i do PC: po uruchomieni programu, klawisz A - dane z TeraTerm są przesyłane do CA a klawisz C - z CA do PC.
