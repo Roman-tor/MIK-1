@@ -1,0 +1,657 @@
+00000h                                                           ; ver ..ROM_PL1 -  BUFFER_START od FE00
+00000h            TI:                   EQU       7              ; TI - pobranie znaku z echem
+00000h            EXPR:                 EQU       0213H          ; EXPR - pobranie ciagu liczb szesnastkowych /HEX/ na stos
+00000h            CLR:                  EQU       10H            ; CLR - kasowanie wyswietlacza
+00000h            PRINT:                EQU       01D4H          ; PRINT - drukuje komunikat z (HL)zmiany PWYS
+00000h            LADR:                 EQU       20H            ; LADR - wyswietlenie HL w HEX
+00000h            LBYTE:                EQU       18H            ; wysw. A
+00000h            HILO:                 EQU       023BH          ; HL=HL+1, DE-HL
+00000h            TOS1:                 EQU       0FF66H         ; stos uzytkownika
+00000h            DLUG:                 EQU       #FFB1
+00000h                                            
+00000h            DATA_8251:            EQU       0E4H           ;Data register on channel A                      
+00000h            CONTR_8251:           EQU       0E5H           ;Control registers on channel A              
+00000h            SAVE_CHAR:            EQU       0FFE7H         ; Zmienne bufora kolowego UART
+00000h            WRITE_PTR:            EQU       0FFE5H         ; Write pointer (offset from BUFFER_START)
+00000h            READ_PTR:             EQU       0FFE6H         ; Read pointer (offset from BUFFER_START)
+00000h                                                           ;
+00000h                                                           ;**************************
+00000h                                  ORG       #F000
+0F000h 3166FF                           LD        SP,TOS1
+0F003h CD18F4                           CALL      INIT_8251
+0F006h CD30F4                           CALL      INIT_BUFFER
+0F009h 2146F4                           LD        HL,A_C
+0F00Ch CDD401                           CALL      PRINT
+0F00Fh 71                               DEFB      #71
+0F010h CD0700     POCZ:                 CALL      TI
+0F013h 17                               DEFB      #17
+0F014h FE0A                             CP        #A             ;  wyslij plik do CA
+0F016h CA3EF2                           JP        Z,ZA_1
+0F019h FE0C                             CP        #C             ; wyslij plik do PC
+0F01Bh 2802                             JR        Z,ZC_1
+0F01Dh 18F1                             JR        POCZ
+0F01Fh                                            
+0F01Fh                                                           ;Wyslij obszar jako IntelHEX przez UART (MIK1)
+0F01Fh                                                           ;*********************************************************************
+0F01Fh                                                           ; najpierw wciskamy "A" na CA, potem File/LOG, nadajemy nazwe, kropka i HEX
+0F01Fh                                                           ; np. CA02.hex - kropka i hex OBOWIAZKOWE a na CA wpisujemy [ADR1][.] [ADR2] [=]
+0F01Fh                                                           ;[C][ADR1][.][ADR2][=]
+0F01Fh 212FF1     ZC_1:                 LD        HL,ZA_MSG
+0F022h CD75F3                           CALL      PUTS
+0F025h CDEDF3                           CALL      CRLF
+0F028h 214CF1                           LD        HL,ZAB_MSG
+0F02Bh CD75F3                           CALL      PUTS
+0F02Eh CDEDF3                           CALL      CRLF
+0F031h 216BF1                           LD        HL,ZAA_MSG
+0F034h CD75F3                           CALL      PUTS
+0F037h CDEDF3                           CALL      CRLF
+0F03Ah CDEDF3                           CALL      CRLF
+0F03Dh CD0FF1                           CALL      FLUSH_TX
+0F040h D7                               RST       #10
+0F041h 40                               DEFB      #40
+0F042h 213CF4                           LD        HL,DO_PC       ; "do.PC" na CA - wyslij plik z CA do PC
+0F045h CDD401                           CALL      PRINT
+0F048h 44                               DEFB      #44
+0F049h 0E02                             LD        C,2            ; dwa parametry [ADR1][.][ADR2]
+0F04Bh CD1302                           CALL      EXPR
+0F04Eh 40                               DEFB      40H
+0F04Fh D1                               POP       DE             ;ADR2
+0F050h E1                               POP       HL             ;ADR1        
+0F051h E5         WR0A:                 PUSH      HL
+0F052h 3AB1FF                           LD        A,(DLUG)       ;dlug. bloku danych 
+0F055h 4F                               LD        C,A
+0F056h 0600                             LD        B,0
+0F058h 04         WR1A:                 INC       B
+0F059h 0D                               DEC       C
+0F05Ah 2805                             JR        Z,WR2A
+0F05Ch CD3B02                           CALL      HILO
+0F05Fh 30F7                             JR        NC,WR1A
+0F061h                                                           ;B - wyliczona dlugosc bloku danych
+0F061h 3E3A       WR2A:                 LD        A,':'
+0F063h CDC9F0                           CALL      PUTC
+0F066h E1                               POP       HL
+0F067h D5                               PUSH      DE
+0F068h 1600                             LD        D,0            ;Zerow. sumy kontrolnej
+0F06Ah 78                               LD        A,B            ; DLUGOSC REKORDU
+0F06Bh CDC1F0                           CALL      XBYT
+0F06Eh 78                               LD        A,B
+0F06Fh DF                               RST       LBYTE
+0F070h 25                               DEFB      25H
+0F071h 7C                               LD        A,H
+0F072h CDC1F0                           CALL      XBYT           ; Wyślij wyższy bajt adresu
+0F075h 7D                               LD        A,L
+0F076h CDC1F0                           CALL      XBYT           ; Wyślij niższy bajt adresu
+0F079h 3E00                             LD        A,0X00         ; Typ rekordu (00 - dane)
+0F07Bh CDC1F0                           CALL      XBYT           ; Wyślij typ rekordu
+0F07Eh E7                               RST       LADR
+0F07Fh 40                               DEFB      40H
+0F080h                                                           ;zapisanie bloku danych do bufora
+0F080h 7E         WR3A:                 LD        A,(HL)
+0F081h CDC1F0                           CALL      XBYT
+0F084h 23                               INC       HL
+0F085h 10F9                             DJNZ      WR3A
+0F087h                                                           ;SUMD - suma kontrolna bloku danych
+0F087h AF                               XOR       A
+0F088h 92                               SUB       D              ;-SUMD
+0F089h CDC1F0                           CALL      XBYT
+0F08Ch CDEDF3                           CALL      CRLF
+0F08Fh CD0FF1                           CALL      FLUSH_TX
+0F092h D1                               POP       DE
+0F093h 2B                               DEC       HL
+0F094h CD3B02                           CALL      HILO
+0F097h 30B8                             JR        NC,WR0A        ; NASTEPNY REKORD
+0F099h                                                           ;DE<HL - koniec zapisu
+0F099h 3E3A                             LD        A,':'
+0F09Bh CDC9F0                           CALL      PUTC
+0F09Eh 1600                             LD        D,0            ;Zerow. sumy kontrolnej
+0F0A0h AF                               XOR       A              ; DLUGOSC REKORDU
+0F0A1h CDC1F0                           CALL      XBYT
+0F0A4h DF                               RST       LBYTE
+0F0A5h 25                               DEFB      25H
+0F0A6h 67                               LD        H,A
+0F0A7h CDC1F0                           CALL      XBYT           ; Wyślij wyższy bajt adresu
+0F0AAh 6F                               LD        L,A
+0F0ABh CDC1F0                           CALL      XBYT           ; Wyślij niższy bajt adresu
+0F0AEh 3E01                             LD        A,0X01         ; Typ rekordu (01 - EOF)
+0F0B0h CDC1F0                           CALL      XBYT           ; Wyślij typ rekordu
+0F0B3h                                                           ;SUMD - suma kontrolna bloku EOF
+0F0B3h AF                               XOR       A
+0F0B4h 92                               SUB       D              ;-SUMD
+0F0B5h CDC1F0                           CALL      XBYT
+0F0B8h E7                               RST       LADR
+0F0B9h 40                               DEFB      40H
+0F0BAh CDEDF3                           CALL      CRLF
+0F0BDh CD0FF1                           CALL      FLUSH_TX
+0F0C0h C9                               RET       
+0F0C1h                                            
+0F0C1h            XBYT:                                          ;WYSLIJ BYTE PRZEZ UART Z OBLICZENIEM SUMY KONTROLNEJ
+0F0C1h 4F                               LD        C,A
+0F0C2h 82                               ADD       A,D            ;suma modulo 256
+0F0C3h 57                               LD        D,A
+0F0C4h 79                               LD        A,C
+0F0C5h CD07F4     XBYTE:                CALL      PRINT_BYTE
+0F0C8h C9                               RET       
+0F0C9h                                                           ;=======
+0F0C9h                                                           ; Send a single character to the serial line (A contains the character):
+0F0C9h                                                           ;
+0F0C9h            PUTC:                           
+0F0C9h 32E7FF                           LD        (SAVE_CHAR),A  ; instead of PUSH AF
+0F0CCh CD02F1                           CALL      CHECK_TX       ; try to send char from buffer
+0F0CFh CDDCF0                           CALL      WRITE_BUFFER   ; put new char in buffer
+0F0D2h C9                               RET       
+0F0D3h            GETC:                           
+0F0D3h CD02F1                           CALL      CHECK_TX       ; try to send char from buffer
+0F0D6h CD27F1                           CALL      READ_CHAR      ; is new char?
+0F0D9h 28F8                             JR        Z,GETC         ; repeat if not
+0F0DBh C9                               RET       
+0F0DCh                                            
+0F0DCh            WRITE_BUFFER:                   
+0F0DCh CD1FF1                           CALL      IS_BUFFER_FULL ; Check if the buffer is full
+0F0DFh C8                               RET       Z              ; buffer_full   ; If the Zero flag is set, the buffer is full
+0F0E0h                                            
+0F0E0h                                                           ; Write data (assuming SAVE_CHAR holds the data to write)
+0F0E0h E5                               PUSH      HL
+0F0E1h 26FE                             LD        H,BUFFER_START
+0F0E3h DD6E00                           LD        L,(IX+0)       ; Get the current write pointer
+0F0E6h 3AE7FF                           LD        A,(SAVE_CHAR)  ; put new char in buffer
+0F0E9h 77                               LD        (HL),A         ; Write the data
+0F0EAh E1                               POP       HL
+0F0EBh                                                           ; Increment the write pointer
+0F0EBh DD3400                           INC       (IX+0)         ; Move to the next position
+0F0EEh C9                               RET       
+0F0EFh                                            
+0F0EFh            BUFFER_EMPTY:                   
+0F0EFh                                                           ; Handle the empty case (e.g., return without reading)
+0F0EFh AF                               XOR       A
+0F0F0h C9                               RET       
+0F0F1h                                            
+0F0F1h                                                           ; Read data from the buffer with empty check
+0F0F1h            READ_BUFFER:                    
+0F0F1h CD18F1                           CALL      IS_BUFFER_EMPTY; Check if the buffer is empty
+0F0F4h 28F9                             JR        Z,BUFFER_EMPTY ; If the Zero flag is set, the buffer is empty
+0F0F6h                                            
+0F0F6h                                                           ; Read data
+0F0F6h E5                               PUSH      HL
+0F0F7h 26FE                             LD        H,BUFFER_START
+0F0F9h DD6E01                           LD        L,(IX+1)       ; Get the current read pointer
+0F0FCh 7E                               LD        A,(HL)         ; Read the data
+0F0FDh E1                               POP       HL
+0F0FEh                                                           ; Increment the read pointer
+0F0FEh DD3401                           INC       (IX+1)         ; Move to the next position
+0F101h C9                               RET       
+0F102h                                            
+0F102h            CHECK_TX:                       
+0F102h DBE5                             IN        A,(CONTR_8251)
+0F104h E601                             AND       01H
+0F106h C8                               RET       Z              ; return if Tx not ready
+0F107h CDF1F0                           CALL      READ_BUFFER
+0F10Ah B7                               OR        A
+0F10Bh C8                               RET       Z              ; return if buffer is empty
+0F10Ch D3E4                             OUT       (DATA_8251),A  ; send char
+0F10Eh C9                               RET       
+0F10Fh                                            
+0F10Fh            FLUSH_TX:                       
+0F10Fh CD18F1                           CALL      IS_BUFFER_EMPTY
+0F112h C8                               RET       Z              ; return if buffer is empty
+0F113h CD02F1                           CALL      CHECK_TX       ; try to send char from buffer
+0F116h 18F7                             JR        FLUSH_TX       ; repeat
+0F118h                                            
+0F118h            IS_BUFFER_EMPTY:                
+0F118h DD7E00                           LD        A,(IX+0)       ; write_ptr
+0F11Bh DDBE01                           CP        (IX+1)         ; read_ptr
+0F11Eh C9                               RET                      ; Zero flag is set if buffer is empty
+0F11Fh                                            
+0F11Fh                                                           ; Check if the buffer is full
+0F11Fh            IS_BUFFER_FULL:                 
+0F11Fh DD7E00                           LD        A,(IX+0)       ; Get the current write pointer
+0F122h 3C                               INC       A              ; Move to the next position
+0F123h DDBE01                           CP        (IX+1)         ; read_ptr
+0F126h C9                               RET                      ; Zero flag is set if buffer is full
+0F127h                                            
+0F127h                                                           ;              I8251A READ CHAR                                        *
+0F127h                                                           ;************************************************************************
+0F127h            READ_CHAR:                      
+0F127h DBE5                             IN        A,(CONTR_8251)
+0F129h E602                             AND       02H            ; Rx ready? 
+0F12Bh C8                               RET       Z              ; return if not
+0F12Ch DBE4                             IN        A,(DATA_8251)  ; read new char
+0F12Eh C9                               RET       
+0F12Fh                                            
+0F12Fh                                            
+0F12Fh 6F74776F72 ZA_MSG:               DEFM      "otworz FILE/LOG (TeraTerm). ",EOS
+0F14Ch 6E6164616A ZAB_MSG:              DEFM      "nadaj nazwe np. abc.hex i [OK]",EOS
+0F16Bh 706F64616A ZAA_MSG:              DEFM      "podaj adres [ADR1][.][ADR2][=] (ca80). ",EOS
+0F193h                                                           ;
+0F193h                                                           ; Message definitions
+0F193h                                                           ;
+0F193h 4C6164756A HELLO_MSG:            DEFM      "Laduj plik do CA ",EOS
+0F1A5h 5573652046 HELP_MSG:             DEFM      "Use File->SendFile (TeraTerm).",EOS
+0F1C4h 2041647265 LOAD_MSG_1:           DEFM      " Adres startu w CA: ",EOS
+0F1D9h 4C6F616420 LOAD_MSG_2:           DEFM      "Load error - System halted",EOS
+0F1F4h 20437A656B IH_LOAD_MSG_1:        DEFM      " Czekam na dane...",EOS
+0F207h 53796E7461 IH_LOAD_MSG_2:        DEFM      "Syntax error!",EOS
+0F215h 4572726F72 IH_LOAD_MSG_3:        DEFM      "Error sumy hex!",EOS
+0F225h 694C6F6164 IH_LOAD_MSG_4:        DEFM      "iLoad: ",EOS
+0F22Dh 4B6F6C697A IH_LOAD_MSG_5:        DEFM      "Kolizja adresu!!",EOS
+0F23Eh                                                           ;*********************************************************************
+0F23Eh                                            
+0F23Eh                                            
+0F23Eh            ZA_1:                                          ; zapis do CA -  
+0F23Eh                                                           ;==============================================================================
+0F23Eh                                                           ; Some changes added by Zegar. 23/04/2024
+0F23Eh                                                           ;==============================================================================
+0F23Eh                                                           ; iLoad - Intel-Hex Loader - S200718
+0F23Eh                                                           ; Z80-MBC2 - HW ref: A040618 
+0F23Eh                                                           ;
+0F23Eh                                                           ; This program is embedded into:
+0F23Eh                                                           ;   IOS-LITE  - I/O Subsystem - S220618 or newer (until otherwise stated)
+0F23Eh                                                           ;   IOS - I/O Subsystem - S220718 or newer (until otherwise stated)
+0F23Eh                                                           ;
+0F23Eh                                                           ; Note: I've used a large part of the source from this site: 
+0F23Eh                                                           ;       http://www.vaxman.de/projects/tiny_z80/
+0F23Eh                                                           ;==============================================================================
+0F23Eh                                                           ;
+0F23Eh                                                           ;  Memory layout: wg oryginalu, u mnie zmiana
+0F23Eh                                                           ;
+0F23Eh                                                           ;  +-------+
+0F23Eh                                                           ;  ! #0000 !    not used (area available for loading)
+0F23Eh                                                           ;  !  ---  !
+0F23Eh                                                           ;  ! #BFFF !
+0F23Eh                                                           ;  +-------+
+0F23Eh                                                           ;  ! #C000 !    iLoad (local data area + program)
+0F23Eh                                                           ;  !  ---  !
+0F23Eh                                                           ;  ! #C447 !
+0F23Eh                                                           ;  ; #FE00-FF !
+0F23Eh                                                           ;  +-------+
+0F23Eh                                                           ;  ! #FF00 !    not used
+0F23Eh                                                           ;  !  ---  !    (reserved for CA80)
+0F23Eh                                                           ;  ! #FFFF !
+0F23Eh                                                           ;  +-------+
+0F23Eh                                                           ;==================================================================================
+0F23Eh                                            
+0F23Eh                                            
+0F23Eh                                                           ; Costants definitions
+0F23Eh                                                           ;
+0F23Eh            PO_LR:                EQU       #FE00          ; PO czatek Loader Ram
+0F23Eh            LOADER_RAM:           EQU       PO_LR          ; #F900 ;FB00           ; First RAM location used
+0F23Eh            EOS:                  EQU       #00            ; End of string
+0F23Eh            CR:                   EQU       #0D            ; Carriage return
+0F23Eh            LF:                   EQU       #0A            ; Line feed
+0F23Eh            SPACE:                EQU       #20            ; Space
+0F23Eh            BUFFER_START:         EQU       PO_LR/#FF      ; #F9; FBH-oryginal 
+0F23Eh                                                           ;
+0F23Eh                                                           ; iLoad memory starting area
+0F23Eh                                                           ; Print a welcome message
+0F23Eh                                                           ;
+0F23Eh D7                               RST       #10
+0F23Fh 40                               DEFB      #40
+0F240h 2141F4                           LD        HL,DO_CA       ; ; "do.CA" na CA- wyslij plik do CA
+0F243h CDD401                           CALL      PRINT
+0F246h 44                               DEFB      #44
+0F247h 2193F1                           LD        HL,HELLO_MSG   ; "iLoad - Intel-Hex Loader - for CA80"
+0F24Ah CD75F3                           CALL      PUTS
+0F24Dh CDEDF3                           CALL      CRLF
+0F250h 21A5F1                           LD        HL,HELP_MSG
+0F253h CD75F3                           CALL      PUTS
+0F256h CDEDF3                           CALL      CRLF
+0F259h CDEDF3                           CALL      CRLF
+0F25Ch CD0FF1                           CALL      FLUSH_TX
+0F25Fh                                            
+0F25Fh                                                           ;
+0F25Fh                                                           ; Load an INTEL-Hex file into memory
+0F25Fh                                                           ;
+0F25Fh CD95F2                           CALL      IH_LOAD        ; Load Intel-Hex file
+0F262h 3EFF                             LD        A,#FF          ; Test for errors
+0F264h BC                               CP        H
+0F265h 2013                             JR        NZ,PRINT_ADDR  ; Jump if B<>#FF (no errors)
+0F267h BD                               CP        L
+0F268h 2010                             JR        NZ,PRINT_ADDR  ; Jump if C<>#FF (no errors)
+0F26Ah                                                           ;
+0F26Ah                                                           ; Print an error message and halt cpu
+0F26Ah                                                           ;               
+0F26Ah 2125F2                           LD        HL,IH_LOAD_MSG_4
+0F26Dh CD75F3                           CALL      PUTS
+0F270h 21D9F1                           LD        HL,LOAD_MSG_2
+0F273h CD75F3                           CALL      PUTS
+0F276h CD0FF1                           CALL      FLUSH_TX
+0F279h F7                               RST       30H            ; MONITOR CA80
+0F27Ah                                                           ;                halt
+0F27Ah                                                           ;
+0F27Ah                                                           ; Print starting address
+0F27Ah                                                           ;
+0F27Ah E5         PRINT_ADDR:           PUSH      HL             ; Save starting addresss
+0F27Bh 2125F2                           LD        HL,IH_LOAD_MSG_4
+0F27Eh CD75F3                           CALL      PUTS
+0F281h 21C4F1                           LD        HL,LOAD_MSG_1
+0F284h CD75F3                           CALL      PUTS
+0F287h E1                               POP       HL             ; Load starting addresss
+0F288h CDFAF3                           CALL      PRINT_WORD
+0F28Bh CDEDF3                           CALL      CRLF
+0F28Eh CDEDF3                           CALL      CRLF
+0F291h CD0FF1                           CALL      FLUSH_TX
+0F294h F7                               RST       30H            ; MONITOR CA80
+0F295h                                            
+0F295h                                            
+0F295h                                                           ;******************************************************************************
+0F295h                                                           ;***
+0F295h                                                           ;*** Subroutines
+0F295h                                                           ;***
+0F295h                                                           ;******************************************************************************
+0F295h                                                           ;
+0F295h                                                           ; Load an INTEL-Hex file (a ROM image) into memory. This routine has been 
+0F295h                                                           ; more or less stolen from a boot program written by Andrew Lynch and adapted
+0F295h                                                           ; to this simple Z80 based machine.
+0F295h                                                           ;
+0F295h                                                           ; The first address in the INTEL-Hex file is considerd as the Program Starting Address
+0F295h                                                           ; and is stored into HL.
+0F295h                                                           ;
+0F295h                                                           ; If an error is found HL=#FFFF on return.
+0F295h                                                           ;
+0F295h                                                           ; The INTEL-Hex format looks a bit awkward - a single line contains these 
+0F295h                                                           ; parts:
+0F295h                                                           ; ':', Record length (2 hex characters), load address field (4 hex characters),
+0F295h                                                           ; record type field (2 characters), data field (2 * n hex characters),
+0F295h                                                           ; checksum field. Valid record types are 0 (data) and 1 (end of file).
+0F295h                                                           ;
+0F295h                                                           ; Please note that this routine will not echo what it read from stdin but
+0F295h                                                           ; what it "understood". :-)
+0F295h                                                           ; 
+0F295h F5         IH_LOAD:              PUSH      AF
+0F296h D5                               PUSH      DE
+0F297h C5                               PUSH      BC
+0F298h 01FFFF                           LD        BC,#FFFF       ; Init BC = #FFFF
+0F29Bh 21F4F1                           LD        HL,IH_LOAD_MSG_1
+0F29Eh CD75F3                           CALL      PUTS
+0F2A1h CDEDF3                           CALL      CRLF
+0F2A4h CDD3F0     IH_LOAD_LOOP:         CALL      GETC           ; Get a single character
+0F2A7h FE0D                             CP        CR             ; Don't care about CR
+0F2A9h 28F9                             JR        Z,IH_LOAD_LOOP
+0F2ABh FE0A                             CP        LF             ; ...or LF
+0F2ADh 28F5                             JR        Z,IH_LOAD_LOOP
+0F2AFh FE20                             CP        SPACE          ; ...or a space
+0F2B1h 28F1                             JR        Z,IH_LOAD_LOOP
+0F2B3h CDC9F3                           CALL      TO_UPPER       ; Convert to upper case
+0F2B6h CDC9F0                           CALL      PUTC           ; Echo character
+0F2B9h FE3A                             CP        ':'            ; Is it a colon?                
+0F2BBh C24FF3                           JP        NZ,IH_LOAD_ERR ; No - print an error message
+0F2BEh CD90F3                           CALL      GET_BYTE       ; Get record length into A
+0F2C1h 57                               LD        D,A            ; Length is now in D
+0F2C2h 1E00                             LD        E,#0           ; Clear checksum
+0F2C4h CD6DF3                           CALL      IH_LOAD_CHK    ; Compute checksum
+0F2C7h CD85F3                           CALL      GET_WORD       ; Get load address into HL
+0F2CAh 3EFF                             LD        A,#FF          ; Save first address as the starting addr
+0F2CCh B8                               CP        B
+0F2CDh 2005                             JR        NZ,UPDATE_CHK  ; Jump if B<>#FF
+0F2CFh B9                               CP        C
+0F2D0h 2002                             JR        NZ,UPDATE_CHK  ; Jump if C<>#FF
+0F2D2h 44                               LD        B,H            ; Save starting address in BC
+0F2D3h 4D                               LD        C,L
+0F2D4h 7C         UPDATE_CHK:           LD        A,H            ; Update checksum by this address
+0F2D5h CD6DF3                           CALL      IH_LOAD_CHK
+0F2D8h 7D                               LD        A,L
+0F2D9h CD6DF3                           CALL      IH_LOAD_CHK
+0F2DCh CD90F3                           CALL      GET_BYTE       ; Get the record type
+0F2DFh CD6DF3                           CALL      IH_LOAD_CHK    ; Update checksum
+0F2E2h FE01                             CP        #1             ; Have we reached the EOF marker?
+0F2E4h 201E                             JR        NZ,IH_LOAD_DATA; No - get some data
+0F2E6h CD90F3                           CALL      GET_BYTE       ; Yes - EOF, read checksum data
+0F2E9h CD6DF3                           CALL      IH_LOAD_CHK    ; Update our own checksum
+0F2ECh 7B                               LD        A,E
+0F2EDh A7                               AND       A              ; Is our checksum zero (as expected)?
+0F2EEh 2871                             JR        Z,IH_LOAD_EXIT ; Yes - exit this routine
+0F2F0h CDEDF3     IH_LOAD_CHK_ERR:      CALL      CRLF           ; No - print an error message
+0F2F3h 2125F2                           LD        HL,IH_LOAD_MSG_4
+0F2F6h CD75F3                           CALL      PUTS
+0F2F9h 2115F2                           LD        HL,IH_LOAD_MSG_3
+0F2FCh CD75F3                           CALL      PUTS
+0F2FFh 01FFFF                           LD        BC,#FFFF
+0F302h 185D                             JR        IH_LOAD_EXIT   ; ...and exit
+0F304h 7A         IH_LOAD_DATA:         LD        A,D            ; Record length is now in A
+0F305h A7                               AND       A              ; Did we process all bytes?
+0F306h 2837                             JR        Z,IH_LOAD_EOL  ; Yes - process end of line
+0F308h CD90F3                           CALL      GET_BYTE       ; Read two hex digits into A
+0F30Bh CD6DF3                           CALL      IH_LOAD_CHK    ; Update checksum
+0F30Eh E5                               PUSH      HL             ; Check if HL < iLoad used space
+0F30Fh C5                               PUSH      BC
+0F310h A7                               AND       A              ; Reset flag C
+0F311h 0100FE                           LD        BC,LOADER_RAM  ; BC = iLoad starting area
+0F314h ED42                             SBC       HL,BC          ; HL = HL - iLoad starting area
+0F316h C1                               POP       BC
+0F317h E1                               POP       HL
+0F318h 3820                             JR        C,STORE_BYTE   ; Jump if HL < iLoad starting area
+0F31Ah                                            
+0F31Ah E5                               PUSH      HL
+0F31Bh C5                               PUSH      BC
+0F31Ch A7                               AND       A              ; Reset flag C
+0F31Dh 01FFFE                           LD        BC,LOADER_RAM+#FF;ld BC, end_iLoad ; koniec progr. iLOAD, oblicza kompilator
+0F320h ED42                             SBC       HL,BC
+0F322h C1                               POP       BC
+0F323h E1                               POP       HL
+0F324h 3014                             JR        NC,STORE_BYTE  ; adres wpisu poza obszarem programu iLOAD
+0F326h CDEDF3                           CALL      CRLF           ; Print an error message
+0F329h 2125F2                           LD        HL,IH_LOAD_MSG_4
+0F32Ch CD75F3                           CALL      PUTS
+0F32Fh 212DF2                           LD        HL,IH_LOAD_MSG_5
+0F332h CD75F3                           CALL      PUTS
+0F335h 01FFFF                           LD        BC,#FFFF       ; Set error flag
+0F338h 1827                             JR        IH_LOAD_EXIT   ; ...and exit
+0F33Ah 77         STORE_BYTE:           LD        (HL),A         ; Store byte into memory
+0F33Bh 23                               INC       HL             ; Increment pointer
+0F33Ch 15                               DEC       D              ; Decrement remaining record length
+0F33Dh 18C5                             JR        IH_LOAD_DATA   ; Get next byte
+0F33Fh CD90F3     IH_LOAD_EOL:          CALL      GET_BYTE       ; Read the last byte in the line
+0F342h CD6DF3                           CALL      IH_LOAD_CHK    ; Update checksum
+0F345h 7B                               LD        A,E
+0F346h A7                               AND       A              ; Is the checksum zero (as expected)?
+0F347h 20A7                             JR        NZ,IH_LOAD_CHK_ERR
+0F349h CDEDF3                           CALL      CRLF
+0F34Ch C3A4F2                           JP        IH_LOAD_LOOP   ; Yes - read next line
+0F34Fh CDEDF3     IH_LOAD_ERR:          CALL      CRLF
+0F352h 2125F2                           LD        HL,IH_LOAD_MSG_4
+0F355h CD75F3                           CALL      PUTS           ; Print error message
+0F358h 2107F2                           LD        HL,IH_LOAD_MSG_2
+0F35Bh CD75F3                           CALL      PUTS
+0F35Eh 01FFFF                           LD        BC,#FFFF
+0F361h CDEDF3     IH_LOAD_EXIT:         CALL      CRLF
+0F364h CD0FF1                           CALL      FLUSH_TX
+0F367h 60                               LD        H,B            ; HL = BC
+0F368h 69                               LD        L,C
+0F369h C1                               POP       BC             ; Restore registers
+0F36Ah D1                               POP       DE
+0F36Bh F1                               POP       AF
+0F36Ch C9                               RET       
+0F36Dh                                                           ;
+0F36Dh                                                           ; Compute E = E - A
+0F36Dh                                                           ;
+0F36Dh C5         IH_LOAD_CHK:          PUSH      BC
+0F36Eh 4F                               LD        C,A            ; All in all compute E = E - A
+0F36Fh 7B                               LD        A,E
+0F370h 91                               SUB       C
+0F371h 5F                               LD        E,A
+0F372h 79                               LD        A,C
+0F373h C1                               POP       BC
+0F374h C9                               RET       
+0F375h                                            
+0F375h                                                           ;------------------------------------------------------------------------------
+0F375h                                                           ;---
+0F375h                                                           ;--- String subroutines
+0F375h                                                           ;---
+0F375h                                                           ;------------------------------------------------------------------------------
+0F375h                                            
+0F375h                                                           ;
+0F375h                                                           ; Send a string to the serial line, HL contains the pointer to the string:
+0F375h                                                           ;
+0F375h F5         PUTS:                 PUSH      AF
+0F376h E5                               PUSH      HL
+0F377h 7E         PUTS_LOOP:            LD        A,(HL)
+0F378h FE00                             CP        EOS            ; End of string reached?
+0F37Ah 2806                             JR        Z,PUTS_END     ; Yes
+0F37Ch CDC9F0                           CALL      PUTC
+0F37Fh 23                               INC       HL             ; Increment character pointer
+0F380h 18F5                             JR        PUTS_LOOP      ; Transmit next character
+0F382h E1         PUTS_END:             POP       HL
+0F383h F1                               POP       AF
+0F384h C9                               RET       
+0F385h                                                           ;
+0F385h                                                           ; Get a word (16 bit) in hexadecimal notation. The result is returned in HL.
+0F385h                                                           ; Since the routines get_byte and therefore get_nibble are called, only valid
+0F385h                                                           ; characters (0-9a-f) are accepted.
+0F385h                                                           ;
+0F385h F5         GET_WORD:             PUSH      AF
+0F386h CD90F3                           CALL      GET_BYTE       ; Get the upper byte
+0F389h 67                               LD        H,A
+0F38Ah CD90F3                           CALL      GET_BYTE       ; Get the lower byte
+0F38Dh 6F                               LD        L,A
+0F38Eh F1                               POP       AF
+0F38Fh C9                               RET       
+0F390h                                                           ;
+0F390h                                                           ; Get a byte in hexadecimal notation. The result is returned in A. Since
+0F390h                                                           ; the routine get_nibble is used only valid characters are accepted - the 
+0F390h                                                           ; input routine only accepts characters 0-9a-f.
+0F390h                                                           ;
+0F390h C5         GET_BYTE:             PUSH      BC             ; Save contents of B (and C)
+0F391h CDA3F3                           CALL      GET_NIBBLE     ; Get upper nibble
+0F394h CB07                             RLC       A
+0F396h CB07                             RLC       A
+0F398h CB07                             RLC       A
+0F39Ah CB07                             RLC       A
+0F39Ch 47                               LD        B,A            ; Save upper four bits
+0F39Dh CDA3F3                           CALL      GET_NIBBLE     ; Get lower nibble
+0F3A0h B0                               OR        B              ; Combine both nibbles
+0F3A1h C1                               POP       BC             ; Restore B (and C)
+0F3A2h C9                               RET       
+0F3A3h                                                           ;
+0F3A3h                                                           ; Get a hexadecimal digit from the serial line. This routine blocks until
+0F3A3h                                                           ; a valid character (0-9a-f) has been entered. A valid digit will be echoed
+0F3A3h                                                           ; to the serial line interface. The lower 4 bits of A contain the value of 
+0F3A3h                                                           ; that particular digit.
+0F3A3h                                                           ;
+0F3A3h CDD3F0     GET_NIBBLE:           CALL      GETC           ; Read a character
+0F3A6h CDC9F3                           CALL      TO_UPPER       ; Convert to upper case
+0F3A9h CDB5F3                           CALL      IS_HEX         ; Was it a hex digit?
+0F3ACh 30F5                             JR        NC,GET_NIBBLE  ; No, get another character
+0F3AEh CDD2F3                           CALL      NIBBLE2VAL     ; Convert nibble to value
+0F3B1h CDDDF3                           CALL      PRINT_NIBBLE
+0F3B4h C9                               RET       
+0F3B5h                                                           ;
+0F3B5h                                                           ; is_hex checks a character stored in A for being a valid hexadecimal digit.
+0F3B5h                                                           ; A valid hexadecimal digit is denoted by a set C flag.
+0F3B5h                                                           ;
+0F3B5h FE47       IS_HEX:               CP        'G'            ; Greater than 'F'?
+0F3B7h D0                               RET       NC             ; Yes
+0F3B8h FE30                             CP        '0'            ; Less than '0'?
+0F3BAh 3002                             JR        NC,IS_HEX_1    ; No, continue
+0F3BCh 3F                               CCF                      ; Complement carry (i.e. clear it)
+0F3BDh C9                               RET       
+0F3BEh FE3A       IS_HEX_1:             CP        ':'            ; Less or equal '9*?
+0F3C0h D8                               RET       C              ; Yes
+0F3C1h FE41                             CP        'A'            ; Less than 'A'?
+0F3C3h 3002                             JR        NC,IS_HEX_2    ; No, continue
+0F3C5h 3F                               CCF                      ; Yes - clear carry and return
+0F3C6h C9                               RET       
+0F3C7h 37         IS_HEX_2:             SCF                      ; Set carry
+0F3C8h C9                               RET       
+0F3C9h                                                           ;
+0F3C9h                                                           ; Convert a single character contained in A to upper case:
+0F3C9h                                                           ;
+0F3C9h FE61       TO_UPPER:             CP        'a'            ; Nothing to do if not lower case
+0F3CBh D8                               RET       C
+0F3CCh FE7B                             CP        '{'            ; > 'z'?
+0F3CEh D0                               RET       NC             ; Nothing to do, either
+0F3CFh E65F                             AND       #5F            ; Convert to upper case
+0F3D1h C9                               RET       
+0F3D2h                                                           ;
+0F3D2h                                                           ; Expects a hexadecimal digit (upper case!) in A and returns the
+0F3D2h                                                           ; corresponding value in A.
+0F3D2h                                                           ;
+0F3D2h FE3A       NIBBLE2VAL:           CP        ':'            ; Is it a digit (less or equal '9')?
+0F3D4h 3802                             JR        C,NIBBLE2VAL_1 ; Yes
+0F3D6h D607                             SUB       7              ; Adjust for A-F
+0F3D8h D630       NIBBLE2VAL_1:         SUB       '0'            ; Fold back to 0..15
+0F3DAh E60F                             AND       #F             ; Only return lower 4 bits
+0F3DCh C9                               RET       
+0F3DDh                                                           ;
+0F3DDh                                                           ; Print_nibble prints a single hex nibble which is contained in the lower 
+0F3DDh                                                           ; four bits of A:
+0F3DDh                                                           ;
+0F3DDh F5         PRINT_NIBBLE:         PUSH      AF             ; We won't destroy the contents of A
+0F3DEh E60F                             AND       #F             ; Just in case...
+0F3E0h C630                             ADD       A,'0'          ; If we have a digit we are done here.
+0F3E2h FE3A                             CP        ':'            ; Is the result > 9?
+0F3E4h 3802                             JR        C,PRINT_NIBBLE_1
+0F3E6h C607                             ADD       A,7            ; Take care of A-F
+0F3E8h CDC9F0     PRINT_NIBBLE_1:       CALL      PUTC           ; Print the nibble and
+0F3EBh F1                               POP       AF             ; restore the original value of A
+0F3ECh C9                               RET       
+0F3EDh                                                           ;
+0F3EDh                                                           ; Send a CR/LF pair:
+0F3EDh                                                           ;
+0F3EDh F5         CRLF:                 PUSH      AF
+0F3EEh 3E0D                             LD        A,CR
+0F3F0h CDC9F0                           CALL      PUTC
+0F3F3h 3E0A                             LD        A,LF
+0F3F5h CDC9F0                           CALL      PUTC
+0F3F8h F1                               POP       AF
+0F3F9h C9                               RET       
+0F3FAh                                                           ;
+0F3FAh                                                           ; Print_word prints the four hex digits of a word to the serial line. The 
+0F3FAh                                                           ; word is expected to be in HL.
+0F3FAh                                                           ;
+0F3FAh E5         PRINT_WORD:           PUSH      HL
+0F3FBh F5                               PUSH      AF
+0F3FCh 7C                               LD        A,H
+0F3FDh CD07F4                           CALL      PRINT_BYTE
+0F400h 7D                               LD        A,L
+0F401h CD07F4                           CALL      PRINT_BYTE
+0F404h F1                               POP       AF
+0F405h E1                               POP       HL
+0F406h C9                               RET       
+0F407h                                                           ;
+0F407h                                                           ; Print_byte prints a single byte in hexadecimal notation to the serial line.
+0F407h                                                           ; The byte to be printed is expected to be in A.
+0F407h                                                           ;
+0F407h F5         PRINT_BYTE:           PUSH      AF             ; Save the contents of the registers
+0F408h C5                               PUSH      BC
+0F409h 47                               LD        B,A
+0F40Ah 0F                               RRCA      
+0F40Bh 0F                               RRCA      
+0F40Ch 0F                               RRCA      
+0F40Dh 0F                               RRCA      
+0F40Eh CDDDF3                           CALL      PRINT_NIBBLE   ; Print high nibble
+0F411h 78                               LD        A,B
+0F412h CDDDF3                           CALL      PRINT_NIBBLE   ; Print low nibble
+0F415h C1                               POP       BC             ; Restore original register contents
+0F416h F1                               POP       AF
+0F417h C9                               RET       
+0F418h                                            
+0F418h            INIT_8251:                      
+0F418h AF                               XOR       A
+0F419h D3E5                             OUT       (CONTR_8251),A
+0F41Bh D3E5                             OUT       (CONTR_8251),A
+0F41Dh D3E5                             OUT       (CONTR_8251),A
+0F41Fh 3E40                             LD        A,40H          ;RESET
+0F421h D3E5                             OUT       (CONTR_8251),A
+0F423h 3E4E                             LD        A,4EH          ;8 BIT, 1 STOP, X16
+0F425h D3E5                             OUT       (CONTR_8251),A
+0F427h DBE4                             IN        A,(DATA_8251)  ;FLUSH
+0F429h DBE4                             IN        A,(DATA_8251)
+0F42Bh 3E07                             LD        A,07H          ;RST=1, DTR=0, Rx Tx ON
+0F42Dh D3E5                             OUT       (CONTR_8251),A
+0F42Fh C9                               RET       
+0F430h            INIT_BUFFER:                    
+0F430h AF                               XOR       A              ; Initialize the write and read pointers
+0F431h DD21E5FF                         LD        IX,WRITE_PTR
+0F435h DD7700                           LD        (IX+0),A       ; write_ptr
+0F438h DD7701                           LD        (IX+1),A       ; read_ptr
+0F43Bh C9                               RET       
+0F43Ch                                                           ; komunikaty na wysw. CA
+0F43Ch 5EDC7339FF DO_PC:                DEFB      #5E,#DC,#73,#39,255; przesyl z CA do PC
+0F441h 5EDC3977FF DO_CA:                DEFB      #5E,#DC,#39,#77,255; przesyl z PC do CA
+0F446h 7700381C7C A_C:                  DEFB      #77,0,#38,#1C,#7C,0,#39,#FF; A" lub C"
+0F44Eh                                            
+0F44Eh DDE2                             DEFB      #DD,#E2
+0F450h 204D494B31                       DEFM      " MIK1 C-doPC A-CA",255
+0F462h                                            
+0F462h                                                           ;end_iLoad: EQU $ ; dla ASide
+0F462h                                            
+0F462h                                            
