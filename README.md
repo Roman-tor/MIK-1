@@ -7,3 +7,4 @@ Zamiast MAX232 zastosowałem gotową płytkę FT 232 RL z gniazdem USB - C, calo
 
 <img width="1262" height="596" alt="MIK1_V3_mini_BACK" src="https://github.com/user-attachments/assets/dc59e4f2-da67-4693-84e0-87bab7969aea" />
 
+Wyjasnienia i opisy /komentarze/  głównie z oryginału.
